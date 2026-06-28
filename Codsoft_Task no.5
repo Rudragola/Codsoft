@@ -1,0 +1,329 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <sstream>
+#include <iomanip>
+#include <ctime>
+#include <algorithm>
+
+using namespace std;
+
+// -------------------- Data Models --------------------
+struct Book {
+    string isbn;
+    string title;
+    string author;
+    bool available;
+};
+
+struct Transaction {
+    string isbn;
+    string borrowerName;
+    long long checkoutTime; // epoch seconds
+    bool returned;
+};
+
+// -------------------- Utility --------------------
+string toLower(const string &s) {
+    string temp = s;
+    transform(temp.begin(), temp.end(), temp.begin(), ::tolower);
+    return temp;
+}
+
+bool containsIgnoreCase(const string &text, const string &key) {
+    return toLower(text).find(toLower(key)) != string::npos;
+}
+
+vector<string> split(const string &line, char delimiter) {
+    vector<string> parts;
+    string item;
+    stringstream ss(line);
+    while (getline(ss, item, delimiter)) {
+        parts.push_back(item);
+    }
+    return parts;
+}
+
+// -------------------- File Handling --------------------
+const string BOOKS_FILE = "books.txt";
+const string TRANSACTIONS_FILE = "transactions.txt";
+
+void saveBooks(const vector<Book> &books) {
+    ofstream fout(BOOKS_FILE);
+    for (const auto &b : books) {
+        fout << b.isbn << "|"
+             << b.title << "|"
+             << b.author << "|"
+             << (b.available ? 1 : 0) << "\n";
+    }
+}
+
+vector<Book> loadBooks() {
+    vector<Book> books;
+    ifstream fin(BOOKS_FILE);
+    string line;
+    while (getline(fin, line)) {
+        if (line.empty()) continue;
+        auto parts = split(line, '|');
+        if (parts.size() == 4) {
+            Book b;
+            b.isbn = parts[0];
+            b.title = parts[1];
+            b.author = parts[2];
+            b.available = (parts[3] == "1");
+            books.push_back(b);
+        }
+    }
+    return books;
+}
+
+void saveTransactions(const vector<Transaction> &txns) {
+    ofstream fout(TRANSACTIONS_FILE);
+    for (const auto &t : txns) {
+        fout << t.isbn << "|"
+             << t.borrowerName << "|"
+             << t.checkoutTime << "|"
+             << (t.returned ? 1 : 0) << "\n";
+    }
+}
+
+vector<Transaction> loadTransactions() {
+    vector<Transaction> txns;
+    ifstream fin(TRANSACTIONS_FILE);
+    string line;
+    while (getline(fin, line)) {
+        if (line.empty()) continue;
+        auto parts = split(line, '|');
+        if (parts.size() == 4) {
+            Transaction t;
+            t.isbn = parts[0];
+            t.borrowerName = parts[1];
+            t.checkoutTime = stoll(parts[2]);
+            t.returned = (parts[3] == "1");
+            txns.push_back(t);
+        }
+    }
+    return txns;
+}
+
+// -------------------- Core Features --------------------
+void addBook(vector<Book> &books) {
+    Book b;
+    cout << "\nEnter ISBN: ";
+    cin >> ws;
+    getline(cin, b.isbn);
+
+    // Check duplicate ISBN
+    for (const auto &book : books) {
+        if (book.isbn == b.isbn) {
+            cout << "Book with this ISBN already exists.\n";
+            return;
+        }
+    }
+
+    cout << "Enter Title: ";
+    getline(cin, b.title);
+
+    cout << "Enter Author: ";
+    getline(cin, b.author);
+
+    b.available = true;
+    books.push_back(b);
+    saveBooks(books);
+    cout << "Book added successfully.\n";
+}
+
+void listBooks(const vector<Book> &books) {
+    if (books.empty()) {
+        cout << "\nNo books in database.\n";
+        return;
+    }
+
+    cout << "\n-------------------- BOOK LIST --------------------\n";
+    cout << left << setw(15) << "ISBN"
+         << setw(30) << "Title"
+         << setw(25) << "Author"
+         << "Status\n";
+    cout << "---------------------------------------------------\n";
+
+    for (const auto &b : books) {
+        cout << left << setw(15) << b.isbn
+             << setw(30) << b.title
+             << setw(25) << b.author
+             << (b.available ? "Available" : "Checked Out") << "\n";
+    }
+}
+
+void searchBooks(const vector<Book> &books) {
+    if (books.empty()) {
+        cout << "\nNo books in database.\n";
+        return;
+    }
+
+    int choice;
+    string key;
+    cout << "\nSearch by:\n";
+    cout << "1. Title\n2. Author\n3. ISBN\nEnter choice: ";
+    cin >> choice;
+    cin >> ws;
+    cout << "Enter search text: ";
+    getline(cin, key);
+
+    bool found = false;
+    cout << "\nSearch Results:\n";
+    for (const auto &b : books) {
+        bool match = false;
+        if (choice == 1 && containsIgnoreCase(b.title, key)) match = true;
+        if (choice == 2 && containsIgnoreCase(b.author, key)) match = true;
+        if (choice == 3 && containsIgnoreCase(b.isbn, key)) match = true;
+
+        if (match) {
+            found = true;
+            cout << "ISBN: " << b.isbn
+                 << ", Title: " << b.title
+                 << ", Author: " << b.author
+                 << ", Status: " << (b.available ? "Available" : "Checked Out")
+                 << "\n";
+        }
+    }
+
+    if (!found) cout << "No matching books found.\n";
+}
+
+void checkoutBook(vector<Book> &books, vector<Transaction> &txns) {
+    string isbn, borrower;
+    cout << "\nEnter ISBN to checkout: ";
+    cin >> ws;
+    getline(cin, isbn);
+
+    int bookIndex = -1;
+    for (int i = 0; i < (int)books.size(); i++) {
+        if (books[i].isbn == isbn) {
+            bookIndex = i;
+            break;
+        }
+    }
+
+    if (bookIndex == -1) {
+        cout << "Book not found.\n";
+        return;
+    }
+
+    if (!books[bookIndex].available) {
+        cout << "Book is already checked out.\n";
+        return;
+    }
+
+    cout << "Enter borrower name: ";
+    getline(cin, borrower);
+
+    books[bookIndex].available = false;
+
+    Transaction t;
+    t.isbn = isbn;
+    t.borrowerName = borrower;
+    t.checkoutTime = time(nullptr);
+    t.returned = false;
+    txns.push_back(t);
+
+    saveBooks(books);
+    saveTransactions(txns);
+
+    cout << "Book checked out successfully.\n";
+    cout << "Note: Due period is 14 days.\n";
+}
+
+double calculateFine(long long checkoutTime, long long returnTime, double finePerDay = 2.0) {
+    const long long dueSeconds = 14LL * 24 * 60 * 60; // 14 days
+    long long elapsed = returnTime - checkoutTime;
+    if (elapsed <= dueSeconds) return 0.0;
+
+    long long overdueSeconds = elapsed - dueSeconds;
+    long long overdueDays = (overdueSeconds + (24 * 60 * 60 - 1)) / (24 * 60 * 60); // ceil days
+    return overdueDays * finePerDay;
+}
+
+void returnBook(vector<Book> &books, vector<Transaction> &txns) {
+    string isbn;
+    cout << "\nEnter ISBN to return: ";
+    cin >> ws;
+    getline(cin, isbn);
+
+    int bookIndex = -1;
+    for (int i = 0; i < (int)books.size(); i++) {
+        if (books[i].isbn == isbn) {
+            bookIndex = i;
+            break;
+        }
+    }
+
+    if (bookIndex == -1) {
+        cout << "Book not found in database.\n";
+        return;
+    }
+
+    int txnIndex = -1;
+    for (int i = (int)txns.size() - 1; i >= 0; i--) {
+        if (txns[i].isbn == isbn && !txns[i].returned) {
+            txnIndex = i;
+            break;
+        }
+    }
+
+    if (txnIndex == -1) {
+        cout << "No active checkout record found for this book.\n";
+        return;
+    }
+
+    long long now = time(nullptr);
+    double fine = calculateFine(txns[txnIndex].checkoutTime, now);
+
+    txns[txnIndex].returned = true;
+    books[bookIndex].available = true;
+
+    saveBooks(books);
+    saveTransactions(txns);
+
+    cout << fixed << setprecision(2);
+    cout << "Book returned successfully.\n";
+    if (fine > 0) {
+        cout << "Overdue fine: Rs. " << fine << "\n";
+    } else {
+        cout << "No fine. Returned on time.\n";
+    }
+}
+
+// -------------------- Main Menu --------------------
+void showMenu() {
+    cout << "\n========== LIBRARY MANAGEMENT SYSTEM ==========\n";
+    cout << "1. Add Book\n";
+    cout << "2. List All Books\n";
+    cout << "3. Search Book\n";
+    cout << "4. Checkout Book\n";
+    cout << "5. Return Book\n";
+    cout << "6. Exit\n";
+    cout << "Enter your choice: ";
+}
+
+int main() {
+    vector<Book> books = loadBooks();
+    vector<Transaction> txns = loadTransactions();
+
+    int choice;
+    do {
+        showMenu();
+        cin >> choice;
+
+        switch (choice) {
+            case 1: addBook(books); break;
+            case 2: listBooks(books); break;
+            case 3: searchBooks(books); break;
+            case 4: checkoutBook(books, txns); break;
+            case 5: returnBook(books, txns); break;
+            case 6: cout << "Exiting... Goodbye!\n"; break;
+            default: cout << "Invalid choice. Try again.\n";
+        }
+    } while (choice != 6);
+
+    return 0;
+}
